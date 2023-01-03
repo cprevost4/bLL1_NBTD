@@ -21,7 +21,6 @@ noise_type = input(prompt);
 
 for l = 1:nTrials
     
-    l
 
     %% Add noise
 
@@ -33,7 +32,9 @@ for l = 1:nTrials
     %-- Gaussian and Poisson noise
     options.SNR_Y1 = 30; %dB 
     options.SNR_Y2 = 30; %dB
-
+    %-- For bench
+    sigma_h = 10^(-options.SNR_Y1/10); sigma_m = 10^(-options.SNR_Y2/10); 
+    opts.lambda = (sigma_h^2)./(sigma_m^2);
 
     if noise_type == 1 || noise_type == 2
         if noise_type == 1 
@@ -51,8 +52,6 @@ for l = 1:nTrials
         Y_1 = max(0,X_1+epsi1);
 
         if noise_type == 1 
-            sigma_h = 10^(-options.SNR_Y1/10); sigma_m = 10^(-options.SNR_Y2/10); 
-            options.lambda = (sigma_h^2)./(sigma_m^2);
             % Gaussian noise - Y_2
             Ngaus = randn(size(X_2));
             Noise = Ngaus/norm(Ngaus(:),'fro');
@@ -67,18 +66,17 @@ for l = 1:nTrials
         Y_2 = max(0,X_2+epsi2);
 
     elseif noise_type == 3
-        opts.lambda = 1;
         epsi1 = gamrnd(a,b,size(X_1));
         epsi2 = gamrnd(a,b,size(X_2));
         Y_1 = max(0,X_1.*epsi1);
         Y_2 = max(0,X_2.*epsi2);
     else
         warning('wrong choice for the noise statistics')
-        quit
+        return;
     end
 
     P3 = max(0,P3); P1 = max(0,P1); P2 = max(0,P2);
-    opts.lambda = options.lambda;
+    
     
     %% Proposed
 
@@ -93,7 +91,7 @@ for l = 1:nTrials
     elseif noise_type == 2
         options.beta = 3/5;
     else
-        options.beta = 1/4;
+        options.beta = 1/4; %1/4
     end
 
     options.kappa = 1e-10;
@@ -109,7 +107,7 @@ for l = 1:nTrials
     L = [3 3 6 6];
     for r=1:R
         X0 = reshape(S0(:,r),[size(Z,1) size(Z,2)]);
-        X0(X0<0) = 0;
+        X0(X0<0) = eps;
         Ainit = rand(size(Y_2,1),L(r));
         Binit = rand(size(Y_2,2),L(r));
         [A0{r},B0{r},cost] = mu_nmf(X0,Ainit,Binit,options);
@@ -120,15 +118,29 @@ for l = 1:nTrials
 
     options.kappa = 1e-7;
     options.nIter = 1000; options.verbose = 1;
+    options.lambda = 1;
 
-    tic;
-    [A,B,C,cost] = MU_beta_LL1_1L(Y_1,Y_2,A00,B00,C0,L,P1,P2,P3,options);
-    time = toc;
+    prompt = "What kind of processing unit ? 1:cpu, 2: gpu.";
+    unit_type = input(prompt);
+    if unit_type == 1
+        tic;
+        [A,B,C,cost] = MU_beta_LL1_1L(Y_1,Y_2,A00,B00,C0,L,P1,P2,P3,options);
+        time = toc;
+    elseif unit_type == 2
+        tic;
+        [A,B,C,cost] = MU_beta_LL1_1L_gpu(Y_1,Y_2,A00,B00,C0,L,P1,P2,P3,options);
+        time = toc;
+    else
+        warning('wrong choice for pocessing unit')
+        return;
+    end
+
 
     S = pw_vecL(A,B,R,L);
     Zhat = pw_vecL(A,B,R,L)*C'; Zhat = reshape(Zhat,size(Z));
 
     metrics = QualityIndices(Zhat,Z,d1);
+
     table_proposed = [transpose(struct2cell(metrics)) time];
     
     all_proposed(:,:,l) = cell2mat(table_proposed);
